@@ -12,6 +12,7 @@ import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository.dart';
 import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository_provider.dart';
+import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_backup.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
@@ -31,9 +32,10 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Stream<Map<String, int>> build(AppProxyMode? mode) {
     _mode = mode;
     if (_mode == null) return Stream.value({});
-    final appsInfo = InstalledApps.getInstalledApps(false);
-    return Stream.fromFuture(appsInfo).asyncExpand((appsInfo) {
-      final phonePkgs = appsInfo.map((e) => e.packageName).toSet();
+    final Future<Set<String>> pkgsFuture = PlatformUtils.isDesktop
+        ? DesktopInstalledAppsService.getInstalledApps(hideSystem: false).then((apps) => apps.map((e) => e.packageName).toSet())
+        : InstalledApps.getInstalledApps(false).then((apps) => apps.map((e) => e.packageName).toSet());
+    return Stream.fromFuture(pkgsFuture).asyncExpand((phonePkgs) {
       return ref.watch(appProxyDataSourceProvider).watchFilterForDisplay(phonePkgs: phonePkgs, mode: _mode).map((
         entryList,
       ) {

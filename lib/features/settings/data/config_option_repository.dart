@@ -2,10 +2,12 @@ import 'package:dartx/dartx.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:hiddify/core/model/optional_range.dart';
 import 'package:hiddify/core/model/region.dart';
+import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/utils/exception_handler.dart';
 import 'package:hiddify/core/utils/json_converters.dart';
 import 'package:hiddify/core/utils/preferences_utils.dart';
 import 'package:hiddify/features/log/model/log_level.dart';
+import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/profile/data/profile_parser.dart';
 import 'package:hiddify/features/route_rules/notifier/rules_notifier.dart';
 import 'package:hiddify/features/settings/model/config_option_failure.dart';
@@ -465,7 +467,55 @@ abstract class ConfigOptions {
     // };
 
     final mode = ref.watch(serviceMode);
-    // final reg = ref.watch(Preferences.region.notifier).raw();
+    final baseRules = ref.watch(rulesNotifierProvider);
+    final perAppMode = ref.watch(Preferences.perAppProxyMode);
+
+    List<Rule> finalRules;
+    if (PlatformUtils.isDesktop && perAppMode != PerAppProxyMode.off) {
+      if (perAppMode == PerAppProxyMode.exclude) {
+        final excludedApps = ref.watch(Preferences.excludeApps);
+        if (excludedApps.isNotEmpty) {
+          final perAppExcludeRule = Rule(
+            name: "Per-App Exclude",
+            outbound: Outbound.direct,
+            processNames: excludedApps,
+            enabled: true,
+          );
+          finalRules = [perAppExcludeRule, ...baseRules];
+        } else {
+          finalRules = baseRules.toList();
+        }
+      } else if (perAppMode == PerAppProxyMode.include) {
+        final includedApps = ref.watch(Preferences.includeApps);
+        if (includedApps.isNotEmpty) {
+          final perAppIncludeRule = Rule(
+            name: "Per-App Include",
+            outbound: Outbound.proxy,
+            processNames: includedApps,
+            enabled: true,
+          );
+          final directRemainingRule = Rule(
+            name: "Per-App Direct Remaining",
+            outbound: Outbound.direct,
+            network: Network.all,
+            enabled: true,
+          );
+          finalRules = [perAppIncludeRule, ...baseRules, directRemainingRule];
+        } else {
+          finalRules = baseRules.toList();
+        }
+      } else {
+        finalRules = baseRules.toList();
+      }
+    } else {
+      finalRules = baseRules.toList();
+    }
+
+    final rulesCopy = finalRules.map((r) => r.clone()).toList();
+    for (var i = 0; i < rulesCopy.length; i++) {
+      rulesCopy[i].listOrder = i;
+    }
+
     return SingboxConfigOption(
       region: ref.watch(region).name,
       balancerStrategy: ref.watch(balancerStrategy),
@@ -544,7 +594,7 @@ abstract class ConfigOptions {
         ),
         profile: SingboxUnblockerProfileOption(id: ref.watch(unblockerProfileId)),
       ),
-      routeRule: RouteRule(rules: ref.watch(rulesNotifierProvider)).toProto3Json()! as Map<String, dynamic>,
+      routeRule: RouteRule(rules: rulesCopy).toProto3Json()! as Map<String, dynamic>,
     );
   });
 }

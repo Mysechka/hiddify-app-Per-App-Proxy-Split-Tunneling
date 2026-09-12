@@ -63,7 +63,7 @@ class App extends HookConsumerWidget with WidgetsBindingObserver, PresLogger {
     final activeBreakpoint = Breakpoint(context).activeBreakpoint;
 
     ref.listen(foregroundProfilesUpdateNotifierProvider, (_, _) {});
-    if (PlatformUtils.isAndroid) ref.listen(perAppProxyServiceProvider, (_, _) {});
+    if (PlatformUtils.isAndroid || PlatformUtils.isDesktop) ref.listen(perAppProxyServiceProvider, (_, _) {});
     if (PlatformUtils.isDesktop) ref.listen(systemTrayNotifierProvider, (_, _) {});
 
     // updating ActiveBreakpointNotifier value

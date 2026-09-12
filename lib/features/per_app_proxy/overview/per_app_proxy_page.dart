@@ -9,6 +9,7 @@ import 'package:hiddify/core/model/region.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
+import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/model/app_package_info.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
@@ -35,6 +36,9 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
   }
 
   Future<Set<AppPackageInfo>> getApps(bool hideSystem) async {
+    if (PlatformUtils.isDesktop) {
+      return await DesktopInstalledAppsService.getInstalledApps(hideSystem: hideSystem);
+    }
     if (!PlatformUtils.isAndroid) return {};
     return (await InstalledApps.getInstalledApps(
       hideSystem,
@@ -286,7 +290,7 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                   scrollController.animateTo(0.0, duration: const Duration(milliseconds: 500), curve: Curves.easeOut),
               child: const Icon(Icons.keyboard_arrow_up_rounded),
             )
-          : (ref.watch(ConfigOptions.region) != Region.other)
+          : (PlatformUtils.isAndroid && ref.watch(ConfigOptions.region) != Region.other)
           ? FloatingActionButton.extended(
               onPressed: () async =>
                   await ref.read(bottomSheetsNotifierProvider.notifier).showAutoAppsSelection(mode: mode!),
@@ -328,7 +332,7 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
               tristate: true,
               onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
               secondary: package.icon == null
-                  ? null
+                  ? const Icon(Icons.apps_rounded, size: 40)
                   : Image.memory(package.icon!, width: 48, height: 48, cacheWidth: 48, cacheHeight: 48),
             );
           },

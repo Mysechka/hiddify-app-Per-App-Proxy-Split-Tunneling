@@ -30,6 +30,8 @@ class RoutingOptionsPage extends HookConsumerWidget {
     final perAppProxy = ref.watch(Preferences.perAppProxyMode).enabled;
     final rules = ref.watch(rulesNotifierProvider);
     final showGeneralOptions = ref.watch(Preferences.showRouteGeneralOptions);
+    final currentServiceMode = ref.watch(ConfigOptions.serviceMode);
+    final isTunMode = currentServiceMode == ServiceMode.tun;
 
     final animationController = useAnimationController(
       duration: const Duration(milliseconds: 300),
@@ -205,19 +207,49 @@ class RoutingOptionsPage extends HookConsumerWidget {
                     }
                   },
                 ),
-                if (PlatformUtils.isAndroid)
+                if (PlatformUtils.isAndroid || PlatformUtils.isDesktop)
                   ListTile(
                     title: Text(t.pages.settings.routing.generalOptions.perAppProxy.title),
+                    subtitle: PlatformUtils.isDesktop && !isTunMode
+                        ? Text(
+                            "Requires TUN mode (${currentServiceMode.presentShort(t)}). Tap to switch",
+                            style: TextStyle(color: theme.colorScheme.error),
+                          )
+                        : null,
                     leading: const Icon(Icons.apps_rounded),
                     trailing: Switch(
                       value: perAppProxy,
                       onChanged: (value) async {
+                        if (PlatformUtils.isDesktop && !isTunMode && value) {
+                          final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
+                            title: t.pages.settings.inbound.serviceModes.tun,
+                            message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",
+                            positiveBtnTxt: t.common.kContinue,
+                          );
+                          if (shouldSwitch == true) {
+                            await ref.read(ConfigOptions.serviceMode.notifier).update(ServiceMode.tun);
+                          } else {
+                            return;
+                          }
+                        }
                         final newMode = perAppProxy ? PerAppProxyMode.off : PerAppProxyMode.exclude;
                         await ref.read(Preferences.perAppProxyMode.notifier).update(newMode);
                         if (!perAppProxy && context.mounted) context.goNamed('perAppProxy');
                       },
                     ),
                     onTap: () async {
+                      if (PlatformUtils.isDesktop && !isTunMode) {
+                        final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
+                          title: t.pages.settings.inbound.serviceModes.tun,
+                          message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",
+                          positiveBtnTxt: t.common.kContinue,
+                        );
+                        if (shouldSwitch == true) {
+                          await ref.read(ConfigOptions.serviceMode.notifier).update(ServiceMode.tun);
+                        } else {
+                          return;
+                        }
+                      }
                       if (!perAppProxy) {
                         await ref.read(Preferences.perAppProxyMode.notifier).update(PerAppProxyMode.exclude);
                       }

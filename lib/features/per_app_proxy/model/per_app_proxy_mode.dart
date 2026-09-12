@@ -1,4 +1,4 @@
-import 'package:hiddify/core/localization/translations.dart';
+import 'package:hiddify/gen/translations.g.dart';
 
 enum PerAppProxyMode {
   off,

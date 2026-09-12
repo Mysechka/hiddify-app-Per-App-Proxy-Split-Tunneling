@@ -3,9 +3,11 @@ import 'dart:async';
 import 'package:hiddify/core/localization/translations.dart';
 import 'package:hiddify/core/notification/in_app_notification_controller.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
+import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/overview/per_app_proxy_notifier.dart';
+import 'package:hiddify/utils/utils.dart';
 import 'package:installed_apps/index.dart';
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
@@ -18,7 +20,9 @@ class PerAppProxyService extends _$PerAppProxyService {
   Timer? _timer;
   @override
   Future<void> build() async {
-    final phonePkgs = (await InstalledApps.getInstalledApps(false)).map((e) => e.packageName).toSet();
+    final phonePkgs = PlatformUtils.isDesktop
+        ? (await DesktopInstalledAppsService.getInstalledApps(hideSystem: false)).map((e) => e.packageName).toSet()
+        : (await InstalledApps.getInstalledApps(false)).map((e) => e.packageName).toSet();
     _includeSubscription = ref
         .read(appProxyDataSourceProvider)
         .watchActivePackages(phonePkgs: phonePkgs, mode: AppProxyMode.include)
@@ -38,6 +42,7 @@ class PerAppProxyService extends _$PerAppProxyService {
   }
 
   Future<void> _autoSelectionUpdate() async {
+    if (!PlatformUtils.isAndroid) return;
     final autoRegion = ref.read(Preferences.autoAppsSelectionRegion);
     if (autoRegion == null) return;
     final mode = ref.read(Preferences.perAppProxyMode).toAppProxy();
