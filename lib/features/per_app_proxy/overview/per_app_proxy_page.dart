@@ -9,12 +9,23 @@ import 'package:hiddify/core/model/region.dart';
 import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
+import 'dart:io' show File;
+
+import 'package:dartx/dartx.dart';
+import 'package:fluentui_system_icons/fluentui_system_icons.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_hooks/flutter_hooks.dart';
+import 'package:flutter/services.dart' show FilePicker;
+import 'package:gap/gap.dart';
+import 'package:go_router/go_router.dart';
+import 'package:hiddify/core/localization/translations.dart';
+import 'package:hiddify/core/model/region.dart';
+import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
+import 'package:hiddify/features/per_app_proxy/data/windows_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/model/app_package_info.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
-import 'package:hiddify/features/per_app_proxy/overview/per_app_proxy_loading_notifier.dart';
-import 'package:hiddify/features/per_app_proxy/overview/per_app_proxy_notifier.dart';
 import 'package:hiddify/features/settings/data/config_option_repository.dart';
 import 'package:hiddify/utils/utils.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
@@ -38,6 +49,9 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
   Future<Set<AppPackageInfo>> getApps(bool hideSystem) async {
     if (PlatformUtils.isDesktop) {
       return await DesktopInstalledAppsService.getInstalledApps(hideSystem: hideSystem);
+    }
+    if (PlatformUtils.isWindows) {
+      return await WindowsInstalledAppsService.getInstalledApps(hideSystem: hideSystem);
     }
     if (!PlatformUtils.isAndroid) return {};
     return (await InstalledApps.getInstalledApps(
@@ -289,6 +303,23 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
               onPressed: () =>
                   scrollController.animateTo(0.0, duration: const Duration(milliseconds: 500), curve: Curves.easeOut),
               child: const Icon(Icons.keyboard_arrow_up_rounded),
+            )
+          : (PlatformUtils.isWindows && ref.watch(ConfigOptions.region) != Region.other)
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['exe'],
+                  dialogTitle: 'Select .exe file',
+                );
+                if (result != null && result.files.single.path != null) {
+                  final exePath = result.files.single.path!;
+                  final appInfo = WindowsInstalledAppsService.appInfoForExePath(exePath);
+                  ref.read(PerAppProxyProvider(mode).notifier).addApp(appInfo);
+                }
+              },
+              label: Text(t.pages.settings.routing.generalOptions.perAppProxy.options.manualAdd),
+              icon: const Icon(Icons.upload_file_rounded),
             )
           : (PlatformUtils.isAndroid && ref.watch(ConfigOptions.region) != Region.other)
           ? FloatingActionButton.extended(

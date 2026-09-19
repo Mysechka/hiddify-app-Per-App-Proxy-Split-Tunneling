@@ -471,7 +471,7 @@ abstract class ConfigOptions {
     final perAppMode = ref.watch(Preferences.perAppProxyMode);
 
     List<Rule> finalRules;
-    if (PlatformUtils.isDesktop && perAppMode != PerAppProxyMode.off) {
+    if ((PlatformUtils.isDesktop || PlatformUtils.isWindows) && perAppMode != PerAppProxyMode.off) {
       if (perAppMode == PerAppProxyMode.exclude) {
         final excludedApps = ref.watch(Preferences.excludeApps);
         if (excludedApps.isNotEmpty) {
