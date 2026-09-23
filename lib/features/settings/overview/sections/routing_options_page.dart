@@ -194,7 +194,7 @@ class RoutingOptionsPage extends HookConsumerWidget {
                         autoRegion != null &&
                         val != Region.other &&
                         mode != null &&
-                        PlatformUtils.isAndroid) {
+                        (PlatformUtils.isAndroid || PlatformUtils.isWindows) {
                       await ref
                           .read(dialogNotifierProvider.notifier)
                           .showOk(
@@ -207,10 +207,10 @@ class RoutingOptionsPage extends HookConsumerWidget {
                     }
                   },
                 ),
-                if (PlatformUtils.isAndroid || PlatformUtils.isDesktop)
+                if (PlatformUtils.isAndroid || PlatformUtils.isDesktop || PlatformUtils.isWindows)
                   ListTile(
                     title: Text(t.pages.settings.routing.generalOptions.perAppProxy.title),
-                    subtitle: PlatformUtils.isDesktop && !isTunMode
+                    subtitle: (PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode
                         ? Text(
                             "Requires TUN mode (${currentServiceMode.presentShort(t)}). Tap to switch",
                             style: TextStyle(color: theme.colorScheme.error),
@@ -220,7 +220,7 @@ class RoutingOptionsPage extends HookConsumerWidget {
                     trailing: Switch(
                       value: perAppProxy,
                       onChanged: (value) async {
-                        if (PlatformUtils.isDesktop && !isTunMode && value) {
+                        if ((PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode && value) {
                           final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
                             title: t.pages.settings.inbound.serviceModes.tun,
                             message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",
@@ -238,7 +238,7 @@ class RoutingOptionsPage extends HookConsumerWidget {
                       },
                     ),
                     onTap: () async {
-                      if (PlatformUtils.isDesktop && !isTunMode) {
+                      if ((PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode) {
                         final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
                           title: t.pages.settings.inbound.serviceModes.tun,
                           message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",

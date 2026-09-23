@@ -1,4 +1,5 @@
 import 'package:dartx/dartx.dart';
+import 'package:file_picker/file_picker.dart';
 import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hooks/flutter_hooks.dart';
@@ -293,6 +294,23 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
               onPressed: () =>
                   scrollController.animateTo(0.0, duration: const Duration(milliseconds: 500), curve: Curves.easeOut),
               child: const Icon(Icons.keyboard_arrow_up_rounded),
+            )
+          : (PlatformUtils.isWindows)
+          ? FloatingActionButton.extended(
+              onPressed: () async {
+                final result = await FilePicker.platform.pickFiles(
+                  type: FileType.custom,
+                  allowedExtensions: ['exe'],
+                  dialogTitle: 'Select .exe file',
+                );
+                if (result != null && result.files.single.path != null && mode != null) {
+                  final exePath = result.files.single.path!;
+                  final appInfo = WindowsInstalledAppsService.appInfoForExePath(exePath);
+                  await ref.read(PerAppProxyProvider(mode).notifier).updatePkg(appInfo.packageName);
+                }
+              },
+              label: const Text('Add .exe'),
+              icon: const Icon(Icons.upload_file_rounded),
             )
           : (PlatformUtils.isAndroid && ref.watch(ConfigOptions.region) != Region.other)
           ? FloatingActionButton.extended(
