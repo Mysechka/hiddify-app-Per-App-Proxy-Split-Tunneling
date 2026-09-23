@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:dartx/dartx_io.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/services.dart';
 import 'package:hiddify/core/localization/translations.dart';
@@ -14,6 +13,7 @@ import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository.da
 import 'package:hiddify/features/per_app_proxy/data/auto_selection_repository_provider.dart';
 import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/data/selected_data_provider.dart';
+import 'package:hiddify/features/per_app_proxy/data/windows_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_backup.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
@@ -32,9 +32,16 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Stream<Map<String, int>> build(AppProxyMode? mode) {
     _mode = mode;
     if (_mode == null) return Stream.value({});
-    final Future<Set<String>> pkgsFuture = PlatformUtils.isDesktop
-        ? DesktopInstalledAppsService.getInstalledApps(hideSystem: false).then((apps) => apps.map((e) => e.packageName).toSet())
-        : InstalledApps.getInstalledApps(false).then((apps) => apps.map((e) => e.packageName).toSet());
+    final Future<Set<String>> pkgsFuture = PlatformUtils.isWindows
+        ? WindowsInstalledAppsService.getInstalledApps()
+            .then((apps) => apps.map((e) => e.packageName).toSet())
+        : PlatformUtils.isDesktop
+            ? DesktopInstalledAppsService.getInstalledApps()
+                .then((apps) => apps.map((e) => e.packageName).toSet())
+            : PlatformUtils.isAndroid
+                ? InstalledApps.getInstalledApps(false)
+                    .then((apps) => apps.map((e) => e.packageName).toSet())
+                : Future.value(<String>{});
     return Stream.fromFuture(pkgsFuture).asyncExpand((phonePkgs) {
       return ref.watch(appProxyDataSourceProvider).watchFilterForDisplay(phonePkgs: phonePkgs, mode: _mode).map((
         entryList,
@@ -51,9 +58,9 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
 
   Future<bool> applyAutoSelection() async {
     loggy.info('Performming auto selection');
-    final t = ref.watch(translationsProvider).requireValue;
-    final region = ref.watch(ConfigOptions.region);
-    final rs = await ref.watch(autoSelectionRepoProvider).getByAppProxyMode(mode: _mode);
+    final t = ref.read(translationsProvider).requireValue;
+    final region = ref.read(ConfigOptions.region);
+    final rs = await ref.read(autoSelectionRepoProvider).getByAppProxyMode(mode: _mode);
     switch (rs.$2) {
       case AutoSelectionResult.success:
         final autoList = rs.$1!;
@@ -71,7 +78,7 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
             .read(inAppNotificationControllerProvider)
             .showInfoToast(
               t.pages.settings.routing.generalOptions.perAppProxy.autoSelection.toast.regionNotFound(
-                region: ref.watch(ConfigOptions.region).name,
+                region: ref.read(ConfigOptions.region).name,
               ),
               duration: const Duration(seconds: 5),
             );
@@ -87,21 +94,22 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   Future<void> clearAutoSelected() async {
     loggy.info('Clearing auto selected');
     await ref.read(appProxyDataSourceProvider).clearAutoSelected(mode: _mode!);
-    await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
+    await ref.read(Preferences.autoAppsSelectionRegion.notifier).update(null);
     await ref.read(Preferences.autoAppsSelectionLastUpdate.notifier).update(null);
   }
 
   Future<void> clearAll() async {
     loggy.info('Clearing all items');
     await ref.read(appProxyDataSourceProvider).clearAll(mode: _mode!);
-    await ref.watch(Preferences.autoAppsSelectionRegion.notifier).update(null);
+    await ref.read(Preferences.autoAppsSelectionRegion.notifier).update(null);
   }
 
   Future<bool> importClipboard() async {
     final t = ref.read(translationsProvider).requireValue;
     try {
       final input = await Clipboard.getData(Clipboard.kTextPlain).then((value) => value?.text);
-      await _importJson(input!);
+      if (input == null || input.trim().isEmpty) return false;
+      await _importJson(input.trim());
       ref.read(inAppNotificationControllerProvider).showSuccessToast(t.common.msg.import.success);
       return true;
     } catch (e, st) {
@@ -115,10 +123,11 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
     final t = ref.read(translationsProvider).requireValue;
     try {
       final result = await FilePicker.platform.pickFiles(type: FileType.custom, allowedExtensions: ['json']);
-      final file = File(result!.files.single.path!);
+      if (result == null || result.files.isEmpty || result.files.single.path == null) return false;
+      final file = File(result.files.single.path!);
       if (!await file.exists()) throw Exception('File does not exist: path = ${file.path}');
       final bytes = await file.readAsBytes();
-      await _importJson(jsonDecode(utf8.decode(bytes)).toString());
+      await _importJson(utf8.decode(bytes));
       ref.read(inAppNotificationControllerProvider).showSuccessToast(t.common.msg.import.success);
       return true;
     } catch (e, st) {
@@ -129,7 +138,7 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   }
 
   Future<bool> exportClipboard() async {
-    final t = ref.watch(translationsProvider).requireValue;
+    final t = ref.read(translationsProvider).requireValue;
     try {
       final json = await _exportJson();
       await Clipboard.setData(ClipboardData(text: json));
@@ -148,10 +157,10 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   }
 
   Future<bool> exportFile() async {
-    final t = ref.watch(translationsProvider).requireValue;
+    final t = ref.read(translationsProvider).requireValue;
     try {
       final json = await _exportJson();
-      final bytes = utf8.encode(jsonEncode(json));
+      final bytes = utf8.encode(json);
       final outputFile = await FilePicker.platform.saveFile(
         fileName: 'per-app proxy.json',
         type: FileType.custom,
@@ -160,8 +169,8 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
       );
       if (outputFile == null) return false;
       if (PlatformUtils.isDesktop) {
-        final file = File(outputFile);
-        if (file.extension != '.json') return false;
+        final targetPath = outputFile.endsWith('.json') ? outputFile : '$outputFile.json';
+        final file = File(targetPath);
         if (!await file.exists()) await file.parent.create(recursive: true);
         await file.writeAsBytes(bytes);
       }
@@ -175,9 +184,9 @@ class PerAppProxy extends _$PerAppProxy with AppLogger {
   }
 
   Future<bool> shareOnGithub() async {
-    final t = ref.watch(translationsProvider).requireValue;
-    final region = ref.watch(ConfigOptions.region);
-    final mode = ref.watch(Preferences.perAppProxyMode).toAppProxy()!;
+    final t = ref.read(translationsProvider).requireValue;
+    final region = ref.read(ConfigOptions.region);
+    final mode = ref.read(Preferences.perAppProxyMode).toAppProxy()!;
     assert(region != Region.other);
     final rs = await ref.read(autoSelectionRepoProvider).getByAppProxyMode(mode: mode, region: region);
     if (rs.$2 != AutoSelectionResult.success) return false;

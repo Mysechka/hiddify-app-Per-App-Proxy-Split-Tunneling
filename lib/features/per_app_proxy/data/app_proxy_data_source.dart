@@ -71,12 +71,10 @@ class AppProxyDao extends DatabaseAccessor<Db> with _$AppProxyDaoMixin, InfraLog
   Stream<List<AppProxyEntry>> watchFilterForDisplay({required Set<String> phonePkgs, required AppProxyMode mode}) {
     if (phonePkgs.isEmpty) return Stream.value([]);
 
-    return (select(appProxyEntries)..where((tbl) {
-          final modeFilter = tbl.mode.equalsValue(mode);
-          final packageFilter = tbl.pkgName.isIn(phonePkgs);
-          return modeFilter & packageFilter;
-        }))
-        .watch();
+    final query = select(appProxyEntries)..where((tbl) => tbl.mode.equalsValue(mode));
+    return query.watch().map((entries) {
+      return entries.where((entry) => phonePkgs.contains(entry.pkgName)).toList();
+    });
   }
 
   @override
@@ -86,17 +84,19 @@ class AppProxyDao extends DatabaseAccessor<Db> with _$AppProxyDaoMixin, InfraLog
     final query = selectOnly(appProxyEntries)..addColumns([appProxyEntries.pkgName]);
 
     final modeFilter = appProxyEntries.mode.equalsValue(mode);
-    final packageFilter = appProxyEntries.pkgName.isIn(phonePkgs);
     final isForceDeselectionSet = appProxyEntries.flags
         .bitwiseAnd(Constant(PkgFlag.forceDeselection.value))
         .equals(PkgFlag.forceDeselection.value);
 
-    final combinedFilter = modeFilter & packageFilter & isForceDeselectionSet.not();
+    final combinedFilter = modeFilter & isForceDeselectionSet.not();
 
     query.where(combinedFilter);
 
     return query.watch().map((rows) {
-      return rows.map((row) => row.read(appProxyEntries.pkgName)!).toList();
+      return rows
+          .map((row) => row.read(appProxyEntries.pkgName)!)
+          .where((pkg) => phonePkgs.contains(pkg))
+          .toList();
     });
   }
 

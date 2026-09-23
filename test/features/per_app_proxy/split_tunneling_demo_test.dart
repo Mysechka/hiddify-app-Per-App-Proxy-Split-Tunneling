@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
-import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/hiddifycore/generated/v2/config/route_rule.pb.dart';
 
 void main() {
@@ -17,7 +16,7 @@ void main() {
 
     print('🔍 Scanning installed desktop applications...');
     final stopwatch = Stopwatch()..start();
-    final allApps = await DesktopInstalledAppsService.getInstalledApps(hideSystem: false);
+    final allApps = await DesktopInstalledAppsService.getInstalledApps();
     stopwatch.stop();
 
     final userApps = allApps.where((a) => !a.isSystem).toList();

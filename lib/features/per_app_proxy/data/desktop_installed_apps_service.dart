@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:hiddify/features/per_app_proxy/data/windows_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/model/app_package_info.dart';
 import 'package:path/path.dart' as p;
 
@@ -10,12 +11,20 @@ class DesktopInstalledAppsService {
 
   static void clearCache() {
     _cachedApps = null;
+    WindowsInstalledAppsService.clearCache();
   }
 
   static Future<Set<AppPackageInfo>> getInstalledApps({
     bool hideSystem = false,
     bool forceRefresh = false,
   }) async {
+    if (Platform.isWindows) {
+      return await WindowsInstalledAppsService.getInstalledApps(
+        hideSystem: hideSystem,
+        forceRefresh: forceRefresh,
+      );
+    }
+
     if (!forceRefresh && _cachedApps != null) {
       return _cachedApps!
           .where((app) => !hideSystem || !app.isSystem)
@@ -25,8 +34,8 @@ class DesktopInstalledAppsService {
     final List<AppPackageInfo> apps;
     if (Platform.isMacOS) {
       apps = await _scanMacOSApps();
-    } else if (Platform.isWindows) {
-      apps = await _scanWindowsApps();
+    } else if (Platform.isLinux) {
+      apps = await _scanLinuxApps();
     } else {
       apps = [];
     }
@@ -256,7 +265,7 @@ class DesktopInstalledAppsService {
     while (pos + 8 <= data.length) {
       final tag = String.fromCharCodes(data.sublist(pos, pos + 4));
       final byteData = ByteData.sublistView(data, pos + 4, pos + 8);
-      final length = byteData.getUint32(0, Endian.big);
+      final length = byteData.getUint32(0);
 
       if (length < 8 || pos + length > data.length) break;
 
@@ -287,17 +296,15 @@ class DesktopInstalledAppsService {
     return bestPng;
   }
 
-  // --- Windows Implementation ---
+  // --- Linux Implementation ---
 
-  static Future<List<AppPackageInfo>> _scanWindowsApps() async {
+  static Future<List<AppPackageInfo>> _scanLinuxApps() async {
     final results = <AppPackageInfo>[];
-    final appData = Platform.environment['APPDATA'];
-    final programData = Platform.environment['ProgramData'] ?? r'C:\ProgramData';
-
+    final home = Platform.environment['HOME'];
     final candidateDirs = <String>[
-      if (appData != null && appData.isNotEmpty)
-        p.join(appData, r'Microsoft\Windows\Start Menu\Programs'),
-      p.join(programData, r'Microsoft\Windows\Start Menu\Programs'),
+      '/usr/share/applications',
+      '/usr/local/share/applications',
+      if (home != null && home.isNotEmpty) p.join(home, '.local', 'share', 'applications'),
     ];
 
     for (final dirPath in candidateDirs) {
@@ -305,25 +312,42 @@ class DesktopInstalledAppsService {
       if (!dir.existsSync()) continue;
 
       try {
-        final entries = dir.listSync(recursive: true, followLinks: false);
+        final entries = dir.listSync(followLinks: false);
         for (final entry in entries) {
-          if (entry is! File) continue;
-          final ext = p.extension(entry.path).toLowerCase();
-          if (ext != '.lnk' && ext != '.exe') continue;
+          if (entry is! File || !entry.path.endsWith('.desktop')) continue;
+          try {
+            final content = await entry.readAsString();
+            final lines = content.split('\n');
 
-          final baseName = p.basenameWithoutExtension(entry.path);
-          if (baseName.startsWith('Uninstall') || baseName.contains('Help')) continue;
+            String? name;
+            String? exec;
+            bool noDisplay = false;
 
-          final exeName = ext == '.exe' ? p.basename(entry.path) : '$baseName.exe';
+            for (final line in lines) {
+              final trimmed = line.trim();
+              if (trimmed.startsWith('Name=') && name == null) {
+                name = trimmed.substring(5).trim();
+              } else if (trimmed.startsWith('Exec=') && exec == null) {
+                exec = trimmed.substring(5).trim().split(' ').first;
+                exec = p.basename(exec);
+              } else if (trimmed.startsWith('NoDisplay=true')) {
+                noDisplay = true;
+              }
+            }
 
-          results.add(
-            AppPackageInfo(
-              packageName: exeName,
-              name: baseName,
-              icon: null,
-              isSystem: false,
-            ),
-          );
+            if (noDisplay || name == null || exec == null || name.isEmpty || exec.isEmpty) {
+              continue;
+            }
+
+            results.add(
+              AppPackageInfo(
+                packageName: exec,
+                name: name,
+                icon: null,
+                isSystem: dirPath.startsWith('/usr'),
+              ),
+            );
+          } catch (_) {}
         }
       } catch (_) {}
     }

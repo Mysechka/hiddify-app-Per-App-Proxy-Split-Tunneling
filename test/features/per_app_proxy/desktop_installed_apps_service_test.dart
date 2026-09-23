@@ -114,7 +114,7 @@ void main() {
     test('Extracted macOS icons have valid PNG header', () async {
       if (!Platform.isMacOS) return;
 
-      final apps = await DesktopInstalledAppsService.getInstalledApps(hideSystem: false);
+      final apps = await DesktopInstalledAppsService.getInstalledApps();
       final appsWithIcon = apps.where((a) => a.icon != null && a.icon!.isNotEmpty).toList();
       expect(appsWithIcon, isNotEmpty);
 
@@ -130,9 +130,7 @@ void main() {
     });
 
     test('DesktopInstalledAppsService caching returns identical results instantly', () async {
-      final t1 = DateTime.now();
       final apps1 = await DesktopInstalledAppsService.getInstalledApps();
-      final elapsed1 = DateTime.now().difference(t1);
 
       final t2 = DateTime.now();
       final apps2 = await DesktopInstalledAppsService.getInstalledApps();
@@ -143,3 +141,4 @@ void main() {
     });
   });
 }
+

@@ -10,6 +10,7 @@ import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/features/per_app_proxy/data/desktop_installed_apps_service.dart';
+import 'package:hiddify/features/per_app_proxy/data/windows_installed_apps_service.dart';
 import 'package:hiddify/features/per_app_proxy/model/app_package_info.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
 import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
@@ -36,6 +37,9 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
   }
 
   Future<Set<AppPackageInfo>> getApps(bool hideSystem) async {
+    if (PlatformUtils.isWindows) {
+      return (await WindowsInstalledAppsService.getInstalledApps(hideSystem: hideSystem)).toSet();
+    }
     if (PlatformUtils.isDesktop) {
       return await DesktopInstalledAppsService.getInstalledApps(hideSystem: hideSystem);
     }
@@ -60,18 +64,16 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
     final searchQuery = useState("");
     final sortListener = useState(false);
 
-    final asyncApps = useFuture(useMemoized(() => getApps(false)));
-    final asyncAppsHideSys = useFuture(useMemoized(() => getApps(true)));
-
-    final asyncFilteredApps = hideSystemApps.value ? asyncAppsHideSys : asyncApps;
+    final asyncFilteredApps = useFuture(useMemoized(() => getApps(hideSystemApps.value), [hideSystemApps.value]));
 
     final displayedApps = useMemoized<AsyncValue<List<AppPackageInfo>>>(
       () {
         if (!(selectedApps.hasValue &&
             selectedApps is AsyncData &&
             asyncFilteredApps.hasData &&
-            asyncFilteredApps.connectionState == ConnectionState.done))
+            asyncFilteredApps.connectionState == ConnectionState.done)) {
           return const AsyncValue.loading();
+        }
         final appsList = asyncFilteredApps.requireData.toList();
         if (searchQuery.value.isBlank) {
           appsList.sort((a, b) {
@@ -237,7 +239,8 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
               ],
               bottom: PreferredSize(
                 preferredSize: const Size.fromHeight(48),
-                child: Expanded(
+                child: SizedBox(
+                  height: 48,
                   child: ListView(
                     scrollDirection: Axis.horizontal,
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -248,8 +251,9 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                         tooltip: (mode?.toPerAppProxy() ?? PerAppProxyMode.off).present(t).message,
                         initialValue: mode?.toPerAppProxy() ?? PerAppProxyMode.off,
                         onSelected: (e) async {
-                          if (ref.read(Preferences.autoAppsSelectionRegion) != null)
+                          if (ref.read(Preferences.autoAppsSelectionRegion) != null) {
                             await ref.read(PerAppProxyProvider(mode).notifier).clearAutoSelected();
+                          }
                           if (e == PerAppProxyMode.off && context.mounted) context.pop();
                           await ref.read(Preferences.perAppProxyMode.notifier).update(e);
                         },
@@ -333,7 +337,14 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
               onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
               secondary: package.icon == null
                   ? const Icon(Icons.apps_rounded, size: 40)
-                  : Image.memory(package.icon!, width: 48, height: 48, cacheWidth: 48, cacheHeight: 48),
+                  : Image.memory(
+                      package.icon!,
+                      width: 48,
+                      height: 48,
+                      cacheWidth: 48,
+                      cacheHeight: 48,
+                      errorBuilder: (_, _, _) => const Icon(Icons.apps_rounded, size: 40),
+                    ),
             );
           },
           itemCount: packages.length,
