@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 import 'package:hiddify/features/per_app_proxy/model/app_package_info.dart';
@@ -301,7 +300,7 @@ String? _guessExeInDir(String dir, String displayName) {
 List<String> _nameTokens(String displayName) {
   return displayName
       .toLowerCase()
-      .split(RegExp(r'[^a-z0-9]+'))
+      .split(RegExp('[^a-z0-9]+'))
       .where((token) => token.length >= 3)
       .take(4)
       .toList();
@@ -604,7 +603,6 @@ Get-AppxPackage | Where-Object {
           name: name,
           exeName: p.basename(exePath),
           exePath: exePath,
-          isSystem: false,
         ),
       );
     }

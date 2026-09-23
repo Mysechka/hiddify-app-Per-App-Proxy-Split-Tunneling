@@ -19,10 +19,10 @@ class DesktopInstalledAppsService {
     bool forceRefresh = false,
   }) async {
     if (Platform.isWindows) {
-      return await WindowsInstalledAppsService.getInstalledApps(
+      return (await WindowsInstalledAppsService.getInstalledApps(
         hideSystem: hideSystem,
         forceRefresh: forceRefresh,
-      );
+      )).toSet();
     }
 
     if (!forceRefresh && _cachedApps != null) {
