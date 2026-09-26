@@ -37,7 +37,7 @@ void main() {
     test('scans macOS apps and extracts properties', () async {
       if (!Platform.isMacOS) return;
 
-      final apps = await DesktopInstalledAppsService.getInstalledApps(hideSystem: false);
+      final apps = await DesktopInstalledAppsService.getInstalledApps();
       expect(apps, isNotEmpty);
 
       // Check that packages have valid names and packageNames
@@ -55,6 +55,16 @@ void main() {
       final withIcons = apps.where((a) => a.icon != null && a.icon!.isNotEmpty);
       expect(withIcons, isNotEmpty);
     });
+
+    test('clearCache resets the cached applications list', () async {
+      final appsBefore = await DesktopInstalledAppsService.getInstalledApps();
+      expect(appsBefore, isNotNull);
+
+      DesktopInstalledAppsService.clearCache();
+
+      final appsAfter = await DesktopInstalledAppsService.getInstalledApps(forceRefresh: true);
+      expect(appsAfter.length, equals(appsBefore.length));
+    });
   });
 
   group('Sing-box Route Rules for Desktop Split Tunneling', () {
@@ -67,7 +77,7 @@ void main() {
       );
 
       final routeRule = RouteRule(rules: [excludeRule]);
-      final jsonMap = routeRule.toProto3Json() as Map<String, dynamic>;
+      final jsonMap = routeRule.toProto3Json()! as Map<String, dynamic>;
 
       expect(jsonMap['rules'], isNotNull);
       final rulesList = jsonMap['rules'] as List;
@@ -94,7 +104,7 @@ void main() {
       );
 
       final routeRule = RouteRule(rules: [includeRule, directRemainingRule]);
-      final jsonMap = routeRule.toProto3Json() as Map<String, dynamic>;
+      final jsonMap = routeRule.toProto3Json()! as Map<String, dynamic>;
 
       final rulesList = jsonMap['rules'] as List;
       expect(rulesList.length, 2);
@@ -141,4 +151,3 @@ void main() {
     });
   });
 }
-
