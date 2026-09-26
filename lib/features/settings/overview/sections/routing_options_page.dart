@@ -194,7 +194,7 @@ class RoutingOptionsPage extends HookConsumerWidget {
                         autoRegion != null &&
                         val != Region.other &&
                         mode != null &&
-                        (PlatformUtils.isAndroid || PlatformUtils.isWindows) {
+                        (PlatformUtils.isAndroid || PlatformUtils.isWindows)) {
                       await ref
                           .read(dialogNotifierProvider.notifier)
                           .showOk(

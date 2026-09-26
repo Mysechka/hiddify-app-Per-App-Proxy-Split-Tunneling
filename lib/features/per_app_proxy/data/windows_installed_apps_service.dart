@@ -84,8 +84,8 @@ class WindowsInstalledAppsService {
   /// `FilePicker` (portable or rare apps missing from the registry and the
   /// Start Menu).
   static AppPackageInfo appInfoForExePath(String exePath) {
-    final fileName = p.basename(exePath);
-    final name = p.basenameWithoutExtension(exePath);
+    final fileName = p.windows.basename(exePath);
+    final name = p.windows.basenameWithoutExtension(exePath);
     return AppPackageInfo(
       packageName: fileName,
       name: name.isEmpty ? fileName : name,
