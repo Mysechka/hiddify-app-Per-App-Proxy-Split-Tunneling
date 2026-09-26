@@ -57,15 +57,23 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
     final t = ref.watch(translationsProvider).requireValue;
     final localizations = MaterialLocalizations.of(context);
 
-    final mode = ref.watch(Preferences.perAppProxyMode).toAppProxy();
+    final currentPerAppMode = ref.watch(Preferences.perAppProxyMode);
+    final mode = currentPerAppMode.toAppProxy();
     final selectedApps = ref.watch(PerAppProxyProvider(mode));
 
     final hideSystemApps = useState(false);
+    final filterOnlySelected = useState(false);
     final isSearching = useState(false);
     final searchQuery = useState("");
+    final searchController = useTextEditingController();
     final sortListener = useState(false);
 
     final asyncFilteredApps = useFuture(useMemoized(() => getApps(hideSystemApps.value), [hideSystemApps.value]));
+
+    final totalFoundCount = asyncFilteredApps.hasData ? asyncFilteredApps.requireData.length : 0;
+    final selectedCount = (selectedApps.hasValue && selectedApps is AsyncData)
+        ? selectedApps.requireValue.entries.where((e) => !PkgFlag.forceDeselection.check(e.value)).length
+        : 0;
 
     final displayedApps = useMemoized<AsyncValue<List<AppPackageInfo>>>(
       () {
@@ -75,23 +83,35 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
             asyncFilteredApps.connectionState == ConnectionState.done)) {
           return const AsyncValue.loading();
         }
-        final appsList = asyncFilteredApps.requireData.toList();
-        if (searchQuery.value.isBlank) {
-          appsList.sort((a, b) {
-            final priorityA = _getPriority(a, selectedApps.requireValue);
-            final priorityB = _getPriority(b, selectedApps.requireValue);
-            return priorityA.compareTo(priorityB);
-          });
+        var appsList = asyncFilteredApps.requireData.toList();
+
+        if (filterOnlySelected.value) {
+          appsList = appsList.where((app) {
+            final flag = selectedApps.requireValue[app.packageName];
+            return flag != null && !PkgFlag.forceDeselection.check(flag);
+          }).toList();
+        }
+
+        if (searchQuery.value.isNotBlank) {
+          appsList = appsList
+              .where((e) =>
+                  e.name.toLowerCase().contains(searchQuery.value.toLowerCase()) ||
+                  e.packageName.toLowerCase().contains(searchQuery.value.toLowerCase()))
+              .toList();
           return AsyncValue.data(appsList);
         }
-        final filteredAppsList = appsList
-            .filter((e) => e.name.toLowerCase().contains(searchQuery.value.toLowerCase()))
-            .toList();
-        return AsyncValue.data(filteredAppsList);
+
+        appsList.sort((a, b) {
+          final priorityA = _getPriority(a, selectedApps.requireValue);
+          final priorityB = _getPriority(b, selectedApps.requireValue);
+          return priorityA.compareTo(priorityB);
+        });
+        return AsyncValue.data(appsList);
       },
       [
         asyncFilteredApps.connectionState == ConnectionState.done,
         hideSystemApps.value,
+        filterOnlySelected.value,
         selectedApps.hasValue,
         searchQuery.value,
         sortListener.value,
@@ -129,7 +149,8 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
     return Scaffold(
       appBar: isSearching.value
           ? AppBar(
-              title: TextFormField(
+              title: TextField(
+                controller: searchController,
                 onChanged: (value) => searchQuery.value = value,
                 autofocus: true,
                 decoration: InputDecoration(
@@ -137,19 +158,24 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                   isDense: true,
                   filled: false,
                   border: InputBorder.none,
-                  focusedBorder: InputBorder.none,
-                  enabledBorder: InputBorder.none,
-                  errorBorder: InputBorder.none,
-                  focusedErrorBorder: InputBorder.none,
-                  disabledBorder: InputBorder.none,
+                  suffixIcon: searchQuery.value.isNotEmpty
+                      ? IconButton(
+                          icon: const Icon(Icons.clear_rounded),
+                          onPressed: () {
+                            searchController.clear();
+                            searchQuery.value = "";
+                          },
+                        )
+                      : null,
                 ),
               ),
               leading: IconButton(
                 onPressed: () {
+                  searchController.clear();
                   searchQuery.value = "";
                   isSearching.value = false;
                 },
-                icon: const Icon(Icons.close),
+                icon: const Icon(Icons.arrow_back_rounded),
                 tooltip: localizations.cancelButtonLabel,
               ),
             )
@@ -238,56 +264,6 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                   ),
                 ),
               ],
-              bottom: PreferredSize(
-                preferredSize: const Size.fromHeight(48),
-                child: SizedBox(
-                  height: 48,
-                  child: ListView(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                    children: [
-                      PopupMenuButton(
-                        borderRadius: BorderRadius.circular(8),
-                        position: PopupMenuPosition.under,
-                        tooltip: (mode?.toPerAppProxy() ?? PerAppProxyMode.off).present(t).message,
-                        initialValue: mode?.toPerAppProxy() ?? PerAppProxyMode.off,
-                        onSelected: (e) async {
-                          if (ref.read(Preferences.autoAppsSelectionRegion) != null) {
-                            await ref.read(PerAppProxyProvider(mode).notifier).clearAutoSelected();
-                          }
-                          if (e == PerAppProxyMode.off && context.mounted) context.pop();
-                          await ref.read(Preferences.perAppProxyMode.notifier).update(e);
-                        },
-                        itemBuilder: (context) => PerAppProxyMode.values
-                            .map((e) => PopupMenuItem(value: e, child: Text(e.present(t).message)))
-                            .toList(),
-                        child: Container(
-                          decoration: BoxDecoration(
-                            borderRadius: BorderRadius.circular(8),
-                            color: theme.colorScheme.surface,
-                            border: Border.all(color: theme.colorScheme.outlineVariant),
-                          ),
-                          child: Row(
-                            children: [
-                              const Gap(16),
-                              Text(mode?.present(t).title ?? ''),
-                              const Gap(4),
-                              Icon(Icons.arrow_drop_down_rounded, color: theme.colorScheme.onSurfaceVariant),
-                              const Gap(8),
-                            ],
-                          ),
-                        ),
-                      ),
-                      const Gap(8),
-                      ChoiceChip(
-                        label: Text(t.pages.settings.routing.generalOptions.perAppProxy.hideSysApps),
-                        selected: hideSystemApps.value,
-                        onSelected: (value) => hideSystemApps.value = value,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
             ),
       floatingActionButton: showScrollToTop.value
           ? FloatingActionButton(
@@ -295,80 +271,284 @@ class PerAppProxyPage extends HookConsumerWidget with PresLogger {
                   scrollController.animateTo(0.0, duration: const Duration(milliseconds: 500), curve: Curves.easeOut),
               child: const Icon(Icons.keyboard_arrow_up_rounded),
             )
-          : (PlatformUtils.isWindows)
-          ? FloatingActionButton.extended(
-              onPressed: () async {
-                final result = await FilePicker.platform.pickFiles(
-                  type: FileType.custom,
-                  allowedExtensions: ['exe'],
-                  dialogTitle: 'Select .exe file',
-                );
-                if (result != null && result.files.single.path != null && mode != null) {
-                  final exePath = result.files.single.path!;
-                  final appInfo = WindowsInstalledAppsService.appInfoForExePath(exePath);
-                  await ref.read(PerAppProxyProvider(mode).notifier).updatePkg(appInfo.packageName);
+          : (PlatformUtils.isWindows || PlatformUtils.isDesktop)
+              ? FloatingActionButton.extended(
+                  onPressed: () async {
+                    if (PlatformUtils.isWindows) {
+                      final result = await FilePicker.platform.pickFiles(
+                        type: FileType.custom,
+                        allowedExtensions: ['exe'],
+                        dialogTitle: 'Select .exe file',
+                      );
+                      if (result != null && result.files.single.path != null && mode != null) {
+                        final exePath = result.files.single.path!;
+                        final appInfo = WindowsInstalledAppsService.appInfoForExePath(exePath);
+                        await ref.read(PerAppProxyProvider(mode).notifier).updatePkg(appInfo.packageName);
+                      }
+                    } else {
+                      final result = await FilePicker.platform.pickFiles(
+                        dialogTitle: 'Select Application',
+                      );
+                      if (result != null && result.files.single.path != null && mode != null) {
+                        final appPath = result.files.single.path!;
+                        final appInfo = DesktopInstalledAppsService.appInfoForPath(appPath);
+                        await ref.read(PerAppProxyProvider(mode).notifier).updatePkg(appInfo.packageName);
+                      }
+                    }
+                  },
+                  label: Text(PlatformUtils.isWindows ? 'Add .exe' : 'Add App'),
+                  icon: const Icon(Icons.add_circle_outline_rounded),
+                )
+              : (PlatformUtils.isAndroid && ref.watch(ConfigOptions.region) != Region.other)
+                  ? FloatingActionButton.extended(
+                      onPressed: () async =>
+                          await ref.read(bottomSheetsNotifierProvider.notifier).showAutoAppsSelection(mode: mode!),
+                      label: Text(t.pages.settings.routing.generalOptions.perAppProxy.autoSelection.title),
+                      icon: Icon(
+                        ref.watch(Preferences.autoAppsSelectionRegion) == null
+                            ? Icons.toggle_off_outlined
+                            : Icons.toggle_on_rounded,
+                      ),
+                    )
+                  : null,
+      body: Column(
+        children: [
+          // Mode Switcher Banner & Quick Controls
+          Container(
+            margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.5),
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: theme.colorScheme.outlineVariant.withOpacity(0.4)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
+                  child: SegmentedButton<PerAppProxyMode>(
+                    segments: [
+                      ButtonSegment(
+                        value: PerAppProxyMode.exclude,
+                        label: Text(t.pages.settings.routing.generalOptions.perAppProxy.modes.bypass),
+                        icon: const Icon(Icons.call_split_rounded, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: PerAppProxyMode.include,
+                        label: Text(t.pages.settings.routing.generalOptions.perAppProxy.modes.proxy),
+                        icon: const Icon(Icons.shield_outlined, size: 18),
+                      ),
+                      ButtonSegment(
+                        value: PerAppProxyMode.off,
+                        label: Text(t.pages.settings.routing.generalOptions.perAppProxy.modes.all),
+                        icon: const Icon(Icons.power_settings_new_rounded, size: 18),
+                      ),
+                    ],
+                    selected: {currentPerAppMode},
+                    onSelectionChanged: (newSelection) async {
+                      final selected = newSelection.first;
+                      if (ref.read(Preferences.autoAppsSelectionRegion) != null) {
+                        await ref.read(PerAppProxyProvider(mode).notifier).clearAutoSelected();
+                      }
+                      if (selected == PerAppProxyMode.off && context.mounted) {
+                        await ref.read(Preferences.perAppProxyMode.notifier).update(selected);
+                        if (context.mounted) context.pop();
+                        return;
+                      }
+                      await ref.read(Preferences.perAppProxyMode.notifier).update(selected);
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
+                  child: Row(
+                    children: [
+                      Icon(
+                        Icons.info_outline_rounded,
+                        size: 15,
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
+                      const Gap(6),
+                      Expanded(
+                        child: Text(
+                          currentPerAppMode.present(t).message,
+                          style: theme.textTheme.bodySmall?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                        decoration: BoxDecoration(
+                          color: theme.colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: Text(
+                          '$selectedCount / $totalFoundCount',
+                          style: theme.textTheme.labelSmall?.copyWith(
+                            color: theme.colorScheme.onPrimaryContainer,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Gap(8),
+                // Filter Chips Row
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  child: Row(
+                    children: [
+                      FilterChip(
+                        label: Text('Все ($totalFoundCount)'),
+                        selected: !filterOnlySelected.value,
+                        onSelected: (_) => filterOnlySelected.value = false,
+                        showCheckmark: false,
+                      ),
+                      const Gap(8),
+                      FilterChip(
+                        label: Text('Выбранные ($selectedCount)'),
+                        selected: filterOnlySelected.value,
+                        onSelected: (_) => filterOnlySelected.value = true,
+                        showCheckmark: true,
+                      ),
+                      const Gap(8),
+                      FilterChip(
+                        label: Text(t.pages.settings.routing.generalOptions.perAppProxy.hideSysApps),
+                        selected: hideSystemApps.value,
+                        onSelected: (val) => hideSystemApps.value = val,
+                        showCheckmark: true,
+                      ),
+                    ],
+                  ),
+                ),
+                const Gap(4),
+              ],
+            ),
+          ),
+          // App List
+          Expanded(
+            child: displayedApps.when(
+              data: (packages) {
+                if (packages.isEmpty) {
+                  return Center(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            isSearching.value ? FluentIcons.search_24_regular : Icons.apps_outlined,
+                            size: 48,
+                            color: theme.colorScheme.outline,
+                          ),
+                          const Gap(12),
+                          Text(
+                            isSearching.value
+                                ? 'Приложения по запросу "${searchQuery.value}" не найдены'
+                                : filterOnlySelected.value
+                                    ? 'Нет выбранных приложений'
+                                    : 'Список приложений пуст',
+                            textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyLarge?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+                          ),
+                          if (isSearching.value || filterOnlySelected.value) ...[
+                            const Gap(12),
+                            OutlinedButton.icon(
+                              onPressed: () {
+                                searchController.clear();
+                                searchQuery.value = "";
+                                filterOnlySelected.value = false;
+                              },
+                              icon: const Icon(Icons.refresh_rounded, size: 18),
+                              label: const Text('Сбросить фильтры'),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  );
                 }
+                return ListView.builder(
+                  padding: const EdgeInsets.only(bottom: 88),
+                  controller: scrollController,
+                  itemBuilder: (context, index) {
+                    final package = packages[index];
+                    final flag = selectedApps.requireValue[package.packageName];
+                    final isChecked = flag != null && PkgFlag.checkboxValue(flag) == true;
+                    return CheckboxListTile.adaptive(
+                      title: Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              package.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontWeight: isChecked ? FontWeight.w600 : FontWeight.normal,
+                              ),
+                            ),
+                          ),
+                          if (flag != null && PkgFlag.forceDeselection.check(flag)) ...[
+                            const Gap(6),
+                            Container(
+                              width: 6,
+                              height: 6,
+                              decoration: BoxDecoration(color: theme.colorScheme.error, shape: BoxShape.circle),
+                            ),
+                          ],
+                        ],
+                      ),
+                      subtitle: Text(
+                        package.packageName,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      value: flag == null ? false : PkgFlag.checkboxValue(flag),
+                      tristate: true,
+                      onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
+                      secondary: package.icon == null
+                          ? Container(
+                              width: 44,
+                              height: 44,
+                              decoration: BoxDecoration(
+                                color: theme.colorScheme.surfaceContainerHighest,
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: const Icon(Icons.apps_rounded, size: 28),
+                            )
+                          : ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: Image.memory(
+                                package.icon!,
+                                width: 44,
+                                height: 44,
+                                cacheWidth: 44,
+                                cacheHeight: 44,
+                                errorBuilder: (_, _, _) => Container(
+                                  width: 44,
+                                  height: 44,
+                                  decoration: BoxDecoration(
+                                    color: theme.colorScheme.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: const Icon(Icons.apps_rounded, size: 28),
+                                ),
+                              ),
+                            ),
+                    );
+                  },
+                  itemCount: packages.length,
+                );
               },
-              label: const Text('Add .exe'),
-              icon: const Icon(Icons.upload_file_rounded),
-            )
-          : (PlatformUtils.isAndroid && ref.watch(ConfigOptions.region) != Region.other)
-          ? FloatingActionButton.extended(
-              onPressed: () async =>
-                  await ref.read(bottomSheetsNotifierProvider.notifier).showAutoAppsSelection(mode: mode!),
-              label: Text(t.pages.settings.routing.generalOptions.perAppProxy.autoSelection.title),
-              icon: Icon(
-                ref.watch(Preferences.autoAppsSelectionRegion) == null
-                    ? Icons.toggle_off_outlined
-                    : Icons.toggle_on_rounded,
-              ),
-            )
-          : null,
-      body: displayedApps.when(
-        data: (packages) => ListView.builder(
-          padding: const EdgeInsets.only(bottom: 88),
-          controller: scrollController,
-          itemBuilder: (context, index) {
-            final package = packages[index];
-            final flag = selectedApps.requireValue[package.packageName];
-            return CheckboxListTile.adaptive(
-              title: Row(
-                children: [
-                  Flexible(child: Text(package.name, maxLines: 1, overflow: TextOverflow.ellipsis)),
-                  if (flag != null && PkgFlag.forceDeselection.check(flag)) ...[
-                    const Gap(6),
-                    Container(
-                      width: 6,
-                      height: 6,
-                      decoration: BoxDecoration(color: theme.colorScheme.error, shape: BoxShape.circle),
-                    ),
-                  ],
-                ],
-              ),
-              subtitle: Text(
-                package.packageName,
-                style: Theme.of(context).textTheme.bodySmall,
-                maxLines: 1, overflow: TextOverflow.ellipsis,
-              ),
-              value: flag == null ? false : PkgFlag.checkboxValue(flag),
-              tristate: true,
-              onChanged: (_) => ref.read(PerAppProxyProvider(mode).notifier).updatePkg(package.packageName),
-              secondary: package.icon == null
-                  ? const Icon(Icons.apps_rounded, size: 40)
-                  : Image.memory(
-                      package.icon!,
-                      width: 48,
-                      height: 48,
-                      cacheWidth: 48,
-                      cacheHeight: 48,
-                      errorBuilder: (_, _, _) => const Icon(Icons.apps_rounded, size: 40),
-                    ),
-            );
-          },
-          itemCount: packages.length,
-        ),
-        error: (error, _) => SliverErrorBodyPlaceholder(error.toString()),
-        loading: () => const Center(child: CircularProgressIndicator()),
+              error: (error, _) => SliverErrorBodyPlaceholder(error.toString()),
+              loading: () => const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+        ],
       ),
     );
   }

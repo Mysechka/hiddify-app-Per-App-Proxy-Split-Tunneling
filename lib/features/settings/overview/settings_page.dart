@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:gap/gap.dart';
 import 'package:go_router/go_router.dart';
 import 'package:hiddify/core/localization/translations.dart';
+import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/core/router/go_router/helper/active_breakpoint_notifier.dart';
+import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
+import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
+import 'package:hiddify/features/per_app_proxy/overview/per_app_proxy_notifier.dart';
 import 'package:hiddify/features/profile/notifier/active_profile_notifier.dart';
 import 'package:hiddify/features/settings/notifier/config_option/config_option_notifier.dart';
 import 'package:hiddify/features/settings/notifier/reset_tunnel/reset_tunnel_notifier.dart';
@@ -159,6 +163,28 @@ class SettingsPage extends HookConsumerWidget {
             icon: Icons.route_rounded,
             namedLocation: context.namedLocation('routingOptions'),
           ),
+          if (PlatformUtils.isAndroid || PlatformUtils.isDesktop)
+            SettingsSection(
+              title: t.pages.settings.routing.generalOptions.perAppProxy.title,
+              icon: Icons.call_split_rounded,
+              subtitle: Builder(
+                builder: (context) {
+                  final perAppMode = ref.watch(Preferences.perAppProxyMode);
+                  if (perAppMode == PerAppProxyMode.off) {
+                    return Text(t.pages.settings.routing.generalOptions.perAppProxy.modes.all);
+                  }
+                  final appMode = perAppMode.toAppProxy();
+                  final selectedApps = appMode != null ? ref.watch(PerAppProxyProvider(appMode)) : null;
+                  final count = (selectedApps?.hasValue == true && selectedApps is AsyncData)
+                      ? selectedApps!.requireValue.entries
+                          .where((e) => !PkgFlag.forceDeselection.check(e.value))
+                          .length
+                      : 0;
+                  return Text('${perAppMode.present(t).title} • $count');
+                },
+              ),
+              namedLocation: context.namedLocation('perAppProxy'),
+            ),
           SettingsSection(
             title: t.pages.settings.dns.title,
             icon: Icons.dns_rounded,

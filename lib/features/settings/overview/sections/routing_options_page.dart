@@ -8,6 +8,7 @@ import 'package:hiddify/core/preferences/general_preferences.dart';
 import 'package:hiddify/core/router/bottom_sheets/bottom_sheets_notifier.dart';
 import 'package:hiddify/core/router/dialog/dialog_notifier.dart';
 import 'package:hiddify/features/per_app_proxy/model/per_app_proxy_mode.dart';
+import 'package:hiddify/features/per_app_proxy/model/pkg_flag.dart';
 import 'package:hiddify/features/per_app_proxy/overview/per_app_proxy_notifier.dart';
 import 'package:hiddify/features/route_rules/notifier/rules_notifier.dart';
 import 'package:hiddify/features/route_rules/widget/rule_tile.dart';
@@ -27,11 +28,8 @@ class RoutingOptionsPage extends HookConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final t = ref.watch(translationsProvider).requireValue;
     final theme = Theme.of(context);
-    final perAppProxy = ref.watch(Preferences.perAppProxyMode).enabled;
     final rules = ref.watch(rulesNotifierProvider);
     final showGeneralOptions = ref.watch(Preferences.showRouteGeneralOptions);
-    final currentServiceMode = ref.watch(ConfigOptions.serviceMode);
-    final isTunMode = currentServiceMode == ServiceMode.tun;
 
     final animationController = useAnimationController(
       duration: const Duration(milliseconds: 300),
@@ -208,54 +206,7 @@ class RoutingOptionsPage extends HookConsumerWidget {
                   },
                 ),
                 if (PlatformUtils.isAndroid || PlatformUtils.isDesktop || PlatformUtils.isWindows)
-                  ListTile(
-                    title: Text(t.pages.settings.routing.generalOptions.perAppProxy.title),
-                    subtitle: (PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode
-                        ? Text(
-                            "Requires TUN mode (${currentServiceMode.presentShort(t)}). Tap to switch",
-                            style: TextStyle(color: theme.colorScheme.error),
-                          )
-                        : null,
-                    leading: const Icon(Icons.apps_rounded),
-                    trailing: Switch(
-                      value: perAppProxy,
-                      onChanged: (value) async {
-                        if ((PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode && value) {
-                          final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
-                            title: t.pages.settings.inbound.serviceModes.tun,
-                            message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",
-                            positiveBtnTxt: t.common.kContinue,
-                          );
-                          if (shouldSwitch == true) {
-                            await ref.read(ConfigOptions.serviceMode.notifier).update(ServiceMode.tun);
-                          } else {
-                            return;
-                          }
-                        }
-                        final newMode = perAppProxy ? PerAppProxyMode.off : PerAppProxyMode.exclude;
-                        await ref.read(Preferences.perAppProxyMode.notifier).update(newMode);
-                        if (!perAppProxy && context.mounted) context.goNamed('perAppProxy');
-                      },
-                    ),
-                    onTap: () async {
-                      if ((PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode) {
-                        final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
-                          title: t.pages.settings.inbound.serviceModes.tun,
-                          message: "Per-App Proxy on desktop requires TUN mode (VPN). Would you like to switch to TUN mode?",
-                          positiveBtnTxt: t.common.kContinue,
-                        );
-                        if (shouldSwitch == true) {
-                          await ref.read(ConfigOptions.serviceMode.notifier).update(ServiceMode.tun);
-                        } else {
-                          return;
-                        }
-                      }
-                      if (!perAppProxy) {
-                        await ref.read(Preferences.perAppProxyMode.notifier).update(PerAppProxyMode.exclude);
-                      }
-                      if (context.mounted) context.goNamed('perAppProxy');
-                    },
-                  ),
+                  const _PerAppProxySectionCard(),
                 ChoicePreferenceWidget(
                   title: t.pages.settings.routing.generalOptions.balancerStrategy.title,
                   icon: Icons.balance_rounded,
@@ -470,6 +421,238 @@ class _ExpandableFabState extends State<_ExpandableFab> with SingleTickerProvide
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         child: Text(label, style: theme.textTheme.labelMedium?.copyWith(color: theme.colorScheme.onSurface)),
+      ),
+    );
+  }
+}
+
+class _PerAppProxySectionCard extends HookConsumerWidget {
+  const _PerAppProxySectionCard();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final t = ref.watch(translationsProvider).requireValue;
+    final theme = Theme.of(context);
+    final perAppMode = ref.watch(Preferences.perAppProxyMode);
+    final isEnabled = perAppMode.enabled;
+    final appMode = perAppMode.toAppProxy();
+    final selectedApps = appMode != null ? ref.watch(PerAppProxyProvider(appMode)) : null;
+    final selectedCount = (selectedApps?.hasValue == true && selectedApps is AsyncData)
+        ? selectedApps!.requireValue.entries
+            .where((e) => !PkgFlag.forceDeselection.check(e.value))
+            .length
+        : 0;
+
+    final currentServiceMode = ref.watch(ConfigOptions.serviceMode);
+    final isTunMode = currentServiceMode == ServiceMode.tun;
+    final needsTunWarning = (PlatformUtils.isDesktop || PlatformUtils.isWindows) && !isTunMode;
+
+    Future<void> handleSwitchToTun() async {
+      final shouldSwitch = await ref.read(dialogNotifierProvider.notifier).showConfirmation(
+            title: t.pages.settings.inbound.serviceModes.tun,
+            message:
+                "Для раздельного туннелирования на компьютере требуется режим TUN (VPN). Переключить режим службы на TUN?",
+            positiveBtnTxt: t.common.kContinue,
+          );
+      if (shouldSwitch == true) {
+        await ref.read(ConfigOptions.serviceMode.notifier).update(ServiceMode.tun);
+      }
+    }
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerHighest.withOpacity(0.4),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: isEnabled
+              ? theme.colorScheme.primary.withOpacity(0.3)
+              : theme.colorScheme.outlineVariant.withOpacity(0.3),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          ListTile(
+            contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+            leading: Container(
+              width: 40,
+              height: 40,
+              decoration: BoxDecoration(
+                color: isEnabled
+                    ? theme.colorScheme.primaryContainer
+                    : theme.colorScheme.surfaceContainerHighest,
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(
+                Icons.call_split_rounded,
+                color: isEnabled
+                    ? theme.colorScheme.onPrimaryContainer
+                    : theme.colorScheme.onSurfaceVariant,
+              ),
+            ),
+            title: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    t.pages.settings.routing.generalOptions.perAppProxy.title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ),
+                const Gap(8),
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: isEnabled
+                        ? theme.colorScheme.primaryContainer
+                        : theme.colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Text(
+                    isEnabled
+                        ? '${perAppMode.present(t).title} • $selectedCount'
+                        : t.pages.settings.routing.generalOptions.perAppProxy.modes.all,
+                    style: theme.textTheme.labelSmall?.copyWith(
+                      color: isEnabled
+                          ? theme.colorScheme.onPrimaryContainer
+                          : theme.colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            subtitle: Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: Text(
+                perAppMode.present(t).message,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+            trailing: Switch.adaptive(
+              value: isEnabled,
+              onChanged: (val) async {
+                if (needsTunWarning && val) {
+                  await handleSwitchToTun();
+                  if (ref.read(ConfigOptions.serviceMode) != ServiceMode.tun) return;
+                }
+                final newMode = isEnabled ? PerAppProxyMode.off : PerAppProxyMode.exclude;
+                await ref.read(Preferences.perAppProxyMode.notifier).update(newMode);
+                if (!isEnabled && context.mounted) {
+                  context.goNamed('perAppProxy');
+                }
+              },
+            ),
+            onTap: () async {
+              if (needsTunWarning) {
+                await handleSwitchToTun();
+                if (ref.read(ConfigOptions.serviceMode) != ServiceMode.tun) return;
+              }
+              if (!isEnabled) {
+                await ref.read(Preferences.perAppProxyMode.notifier).update(PerAppProxyMode.exclude);
+              }
+              if (context.mounted) {
+                context.goNamed('perAppProxy');
+              }
+            },
+          ),
+          if (needsTunWarning)
+            Container(
+              margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.errorContainer.withOpacity(0.6),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.warning_amber_rounded,
+                    size: 20,
+                    color: theme.colorScheme.onErrorContainer,
+                  ),
+                  const Gap(8),
+                  Expanded(
+                    child: Text(
+                      "Требуется режим TUN (${currentServiceMode.presentShort(t)}). Нажмите, чтобы включить",
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onErrorContainer,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: handleSwitchToTun,
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      "Включить",
+                      style: TextStyle(
+                        color: theme.colorScheme.onErrorContainer,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          if (isEnabled) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: SegmentedButton<PerAppProxyMode>(
+                      segments: [
+                        ButtonSegment(
+                          value: PerAppProxyMode.exclude,
+                          label: Text(
+                            t.pages.settings.routing.generalOptions.perAppProxy.modes.bypass,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          icon: const Icon(Icons.call_split_rounded, size: 16),
+                        ),
+                        ButtonSegment(
+                          value: PerAppProxyMode.include,
+                          label: Text(
+                            t.pages.settings.routing.generalOptions.perAppProxy.modes.proxy,
+                            style: const TextStyle(fontSize: 12),
+                          ),
+                          icon: const Icon(Icons.shield_outlined, size: 16),
+                        ),
+                      ],
+                      selected: {
+                        if (perAppMode == PerAppProxyMode.off)
+                          PerAppProxyMode.exclude
+                        else
+                          perAppMode,
+                      },
+                      onSelectionChanged: (newSelection) async {
+                        await ref.read(Preferences.perAppProxyMode.notifier).update(newSelection.first);
+                      },
+                    ),
+                  ),
+                  const Gap(8),
+                  FilledButton.tonalIcon(
+                    onPressed: () => context.goNamed('perAppProxy'),
+                    icon: const Icon(Icons.tune_rounded, size: 16),
+                    label: const Text("Настроить"),
+                    style: FilledButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

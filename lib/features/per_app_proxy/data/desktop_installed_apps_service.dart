@@ -57,6 +57,16 @@ class DesktopInstalledAppsService {
         .toSet();
   }
 
+  /// Builds an [AppPackageInfo] for a manually picked application bundle or executable path.
+  static AppPackageInfo appInfoForPath(String appPath) {
+    final base = p.basename(appPath).replaceAll(RegExp(r'\.app$', caseSensitive: false), '');
+    return AppPackageInfo(
+      packageName: base,
+      name: base,
+      icon: null,
+    );
+  }
+
   // --- macOS Implementation ---
 
   static Future<List<AppPackageInfo>> _scanMacOSApps() async {
